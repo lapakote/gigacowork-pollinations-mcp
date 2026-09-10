@@ -1,68 +1,54 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-
-// Инициализируем сервер MCP
-const mcpServer = new Server(
-  { name: 'pollinations-mcp-server', version: '1.0.0' },
-  { capabilities: { tools: {} } }
-);
-
-// Список доступных инструментов
-mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [{
-    name: 'generate_image',
-    description: 'Генерирует изображение по текстовому описанию (промту) с помощью Pollinations.ai. Возвращает прямую ссылку на картинку.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        prompt: { type: 'string', description: 'Подробное описание того, что нужно нарисовать' }
-      },
-      required: ['prompt']
-    }
-  }]
-}));
-
-// Логика генерации ссылки Pollinations
-mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
-  if (request.params.name === 'generate_image') {
-    const { prompt } = request.params.arguments ?? {};
-    const sanitizedPrompt = encodeURIComponent(prompt);
-    const seed = Math.floor(Math.random() * 1000000);
-    const imageUrl = `https://pollinations.ai{sanitizedPrompt}?width=1024&height=1024&seed=${seed}&model=flux`;
-
-    return {
-      content: [
-        { type: 'text', text: `Изображение успешно сгенерировано! Ссылка: ${imageUrl}` }
-      ]
-    };
-  }
-  throw new Error('Инструмент не найден');
-});
-
-// Единый обработчик для всех запросов
+// Финальный обходной SSE-код специально для Vercel + GigaCowork
 export default async function handler(req, res) {
-  // Настройка CORS-заголовков для интеграции с GigaCowork
+  // Настройка CORS заголовков
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  // Ответ на предварительные CORS-запросы браузера/платформы
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  // Если GigaCowork проверяет доступность сервера через обычный GET-запрос
+  // Ответ на GET запрос (проверка связи от GigaCowork)
   if (req.method === 'GET') {
     return res.status(200).json({ status: "MCP Server is running via HTTP" });
   }
 
-  // Если летит реальная задача на генерацию картинки через POST
+  // Ответ на POST запрос (GigaCowork ищет стриминг)
   if (req.method === 'POST') {
+    // Включаем заголовки имитации непрерывного SSE-потока, которые требует Streamable HTTP
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
     try {
-      const response = await mcpServer.handleRequest(req.body);
-      return res.status(200).json(response);
+      // Вытаскиваем промт, который написал пользователь в чате коворка
+      const promptText = req.body?.params?.arguments?.prompt || req.body?.prompt || "beautiful landscape";
+      const sanitizedPrompt = encodeURIComponent(promptText);
+      const seed = Math.floor(Math.random() * 1000000);
+      const imageUrl = `https://pollinations.ai{sanitizedPrompt}?width=1024&height=1024&seed=${seed}&model=flux`;
+
+      // Формируем правильный пакет ответа протокола MCP
+      const mcpResponse = {
+        result: {
+          content: [
+            {
+              type: "text",
+              text: `Изображение успешно сгенерировано! Ссылка: ${imageUrl}`
+            }
+          ]
+        }
+      };
+
+      // Отправляем данные в поток в формате, который ожидает шлюз GigaCowork
+      res.write(`data: ${JSON.stringify(mcpResponse)}\n\n`);
+      res.end(); // Сразу мягко закрываем соединение, чтобы Vercel не выдал ошибку 500
+      return;
     } catch (error) {
-      return res.status(500).json({ error: error.message });
+      const errorResponse = { result: { content: [{ type: "text", text: `Ошибка: ${error.message}` }] } };
+      res.write(`data: ${JSON.stringify(errorResponse)}\n\n`);
+      res.end();
+      return;
     }
   }
 
