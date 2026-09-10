@@ -39,26 +39,26 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   throw new Error('Инструмент не найден');
 });
 
-// Обработчик входящих HTTP-запросов от GigaCowork
+// Единый обработчик для всех запросов
 export default async function handler(req, res) {
-  // Разрешаем кросс-доменные запросы
+  // Настройка CORS-заголовков для интеграции с GigaCowork
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
+  // Ответ на предварительные CORS-запросы браузера/платформы
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  // Если GigaCowork опрашивает сервер методом GET
+  // Если GigaCowork проверяет доступность сервера через обычный GET-запрос
   if (req.method === 'GET') {
     return res.status(200).json({ status: "MCP Server is running via HTTP" });
   }
 
-  // Если пришел реальный запрос протокола MCP
+  // Если летит реальная задача на генерацию картинки через POST
   if (req.method === 'POST') {
     try {
-      // Передаем тело запроса напрямую в ядро MCP сервера
       const response = await mcpServer.handleRequest(req.body);
       return res.status(200).json(response);
     } catch (error) {
