@@ -1,6 +1,6 @@
 {
+  "version": 2,
   "rewrites": [
-    { "source": "/mcp", "destination": "/api/mcp" },
-    { "source": "/mcp/message", "destination": "/api/message" }
+    { "source": "/(.*)", "destination": "/api/index.js" }
   ]
 }
